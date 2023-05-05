@@ -4,7 +4,8 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const ejs = require("ejs");
 const mongoose = require('mongoose');
-const md5 = require ("md5");
+const bcrypt = require("bcrypt");
+const saltRounds = 10;
 
 const app = express();
 
@@ -44,31 +45,43 @@ app.get("/register", function(req,res){
 // we don't add the secrets page for app.get because we want the user to login
 
 app.post("/register", function(req,res){
-    const newUser = new User({
-        email:req.body.username,
-        password:md5(req.body.password)
-        //using hash function to encrypt password
+    bcrypt.hash(req.body.password, saltRounds, function(err, hash) {
+        // Store hash in your password DB.
+
+        const newUser = new User({
+            email:req.body.username,
+            password:hash
+            //using hash from "salting" bcrypt function to encrypt password
+        });
+    
+        newUser.save()
+        .then(function(){
+            res.render("secrets");
+        })
+        .catch(function(err){
+            console.log(err);
+        })
     });
 
-    newUser.save()
-    .then(function(){
-        res.render("secrets");
-    })
-    .catch(function(err){
-        console.log(err);
-    })
+    
 });
 //user register email and password to begin access to secrets page
 app.post("/login", function(req,res){
     const username = req.body.username;
-    const password = md5(req.body.password);
+    const password = req.body.password;
 
     User.findOne({email:username})
     .then(function(foundUser){
-        if (foundUser.password === password){
+        bcrypt.compare(password, foundUser.password, function(err, result) {
+            // result == true
+
+        if (result===true){
             res.render("secrets");
         }
-    })
+        });
+        
+         })
+    
     .catch (function(err){
         console.log(err);
     })
