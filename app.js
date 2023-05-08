@@ -4,18 +4,27 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const ejs = require("ejs");
 const mongoose = require('mongoose');
-const bcrypt = require("bcrypt");
-const saltRounds = 10;
+const session = require('express-session');
+const passport = require("passport");
+const passportLocalMongoose = require("passport-local-mongoose");
+
 
 const app = express();
 
-
+app.use(express.static("public"));
 app.set('view engine', 'ejs');
-
 app.use(bodyParser.urlencoded({
   extended: true
 }));
-app.use(express.static("public"));
+app.use(session({
+    secret:"Our little secret.",
+    resave: false,
+    saveUninitialized: false
+}));
+app.use(passport.initialize());
+app.use(passport.session());
+
+
 
 mongoose.connect("mongodb://127.0.0.1:27017/userDB", {useNewUrlParser: true});
 
@@ -24,11 +33,15 @@ const userSchema = new mongoose.Schema({
     password:String
 });
 
-
+userSchema.plugin(passportLocalMongoose);
 
 // encrypt specific field "password", and not the entire doc
 
 const User = new mongoose.model("User", userSchema);
+
+passport.use(User.createStrategy());
+passport.serializeUser(User.serializeUser());
+passport.deserializeUser(User.deserializeUser());
 
 //TODO
 app.get("/", function(req, res){
@@ -43,48 +56,59 @@ app.get("/register", function(req,res){
     res.render("register");
 });
 // we don't add the secrets page for app.get because we want the user to login
-
-app.post("/register", function(req,res){
-    bcrypt.hash(req.body.password, saltRounds, function(err, hash) {
-        // Store hash in your password DB.
-
-        const newUser = new User({
-            email:req.body.username,
-            password:hash
-            //using hash from "salting" bcrypt function to encrypt password
-        });
-    
-        newUser.save()
-        .then(function(){
-            res.render("secrets");
-        })
-        .catch(function(err){
-            console.log(err);
-        })
+app.get("/secrets", function(req,res){
+    if (req.isAuthenticated()){
+        res.render("secrets");
+    }else{
+        res.redirect("/login");
+    }
+});
+app.get("/logout", function(req,res,next){
+    req.logout(function(err) {
+        if (err) { return next(err); }
+        res.redirect('/');
+      })
     });
+app.post("/register", function(req,res){
+
+    User.register({username:req.body.username}, req.body.password, function(err,user){
+        if (err){
+            console.log(err);
+            res.redirect("/register");
+        }else{
+            passport.authenticate("local")(req,res, function(){
+                res.redirect("/secrets");
+            });
+        }
+    });
+   
+
+    
 
     
 });
 //user register email and password to begin access to secrets page
 app.post("/login", function(req,res){
-    const username = req.body.username;
-    const password = req.body.password;
 
-    User.findOne({email:username})
-    .then(function(foundUser){
-        bcrypt.compare(password, foundUser.password, function(err, result) {
-            // result == true
+    const user = new User({
+        username:req.body.username,
+        password:req.body.password
+    });
 
-        if (result===true){
-            res.render("secrets");
-        }
-        });
-        
-         })
+    req.login(user, function(err){
+        if (err){
+            console.log(err);
+        }else{
+            passport.authenticate("local")(req,res, function(){
+                res.redirect("/secrets");
+
+        });    
+
+    }
+
+    });
     
-    .catch (function(err){
-        console.log(err);
-    })
+
 });
 //user log ins to secrets page, check to see if it matches what is on databse for user profile
 
